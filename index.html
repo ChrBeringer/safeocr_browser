@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Local OCR (Hardened)</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --success: #059669;
+            --bg-slate: #f8fafc;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-slate);
+            color: var(--text-main);
+            line-height: 1.5;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 99px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #d1fae5;
+            color: #065f46;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle { color: var(--text-muted); font-size: 0.95rem; }
+
+        /* Drop Zone */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            padding: 48px 24px;
+            text-align: center;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #fafafa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .drop-zone.drag-over {
+            border-color: var(--primary);
+            background: #f1f5f9;
+            transform: scale(1.01);
+        }
+
+        .drop-zone svg {
+            width: 48px;
+            height: 48px;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .drop-zone span { pointer-events: none; }
+
+        /* Progress Area */
+        .progress-wrapper {
+            width: 100%;
+            background: #f1f5f9;
+            height: 10px;
+            border-radius: 99px;
+            margin: 24px 0 8px 0;
+            overflow: hidden;
+            display: none;
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #status-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+
+        /* Output Area */
+        .output-container {
+            position: relative;
+            margin-top: 10px;
+        }
+
+        #output {
+            width: 100%;
+            height: 350px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            background: #ffffff;
+            resize: vertical;
+            color: #334155;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #output:focus { border-color: var(--primary); }
+
+        .btn-copy {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: white;
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+
+        .btn-copy:hover { background: var(--bg-slate); border-color: var(--text-muted); }
+
+        /* Warnings */
+        .warning-box {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 16px;
+            margin-top: 32px;
+            border-radius: 4px;
+        }
+
+        .warning-box h4 { margin: 0 0 8px 0; font-size: 0.9rem; color: #92400e; }
+        .warning-box p { margin: 0; font-size: 0.8rem; color: #b45309; line-height: 1.4; }
+
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div class="status-badge">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zM10 21a13 13 0 01-13-13V7a1 1 0 011-1c2.21 0 4.21-.895 5.656-2.344l.001-.001C5.03 2.21 7.235 1 9.75 1s4.72 1.21 6.094 2.655l.001.001c1.446 1.448 3.446 2.344 5.655 2.344a1 1 0 011 1v1a13 13 0 01-13 13z" clip-rule="evenodd"></path></svg>
+            Zero-Transfer / Local-CPU Mode
+        </div>
+        <h1>Secure PDF OCR</h1>
+        <p class="subtitle">Lokale Texterkennung ohne Cloud-Upload</p>
+    </header>
+
+    <div class="drop-zone" id="drop-zone">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+        <span><strong>PDF hierher ziehen</strong> oder klicken</span>
+        <input type="file" id="file-input" accept="application/pdf" style="display:none">
+    </div>
+
+    <div class="progress-wrapper" id="progress-wrapper">
+        <div id="progress-bar"></div>
+    </div>
+    <div id="status-text">Bereit zur Verarbeitung</div>
+
+    <div class="output-container">
+        <button class="btn-copy" onclick="copyToClipboard()">Kopieren</button>
+        <textarea id="output" readonly placeholder="Das Ergebnis der Texterkennung erscheint hier..."></textarea>
+    </div>
+
+    <div class="warning-box">
+        <h4>🛡️ Sicherheitshinweise</h4>
+        <p>
+            • Sequenzielle Seitenverarbeitung zur RAM-Schonung.<br>
+            • Bild-Puffer werden sofort nach Gebrauch vernichtet.<br>
+            • Alle Operationen finden ausschließlich lokal in Ihrem Browser statt.
+        </p>
+    </div>
+</div>
+
+<script>
+    const pdfjs = window['pdfjs-dist/build/pdf'];
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const output = document.getElementById('output');
+    const progressBar = document.getElementById('progress-bar');
+    const progressWrapper = document.getElementById('progress-wrapper');
+    const statusText = document.getElementById('status-text');
+
+    // Klick-Trigger
+    dropZone.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => handleFile(e.target.files[0]);
+
+    // DRAG & DROP BUGFIX
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('drag-over');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('drag-over');
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const file = dt.files[0];
+        if (file && file.type === "application/pdf") {
+            handleFile(file);
+        } else {
+            alert("Bitte laden Sie eine gültige PDF-Datei hoch.");
+        }
+    });
+
+    function copyToClipboard() {
+        output.select();
+        document.execCommand('copy');
+        alert('Text in Zwischenablage kopiert!');
+    }
+
+    async function handleFile(file) {
+        if (!file) return;
+        
+        output.value = "";
+        progressWrapper.style.display = 'block';
+        statusText.innerText = "Initialisiere Engine...";
+        progressBar.style.width = "0%";
+        
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+            
+            // Tesseract Worker
+            const worker = await Tesseract.createWorker('deu');
+            
+            let fullText = "";
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                statusText.innerText = `Verarbeite Seite ${i} von ${pdf.numPages}...`;
+                
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 1.5 });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+                const { data: { text } } = await worker.recognize(canvas);
+                fullText += `--- Seite ${i} ---\n${text}\n\n`;
+                output.value = fullText;
+                output.scrollTop = output.scrollHeight; // Auto-Scroll zum neuesten Text
+
+                // RAM-Cleanup
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                canvas.height = 0;
+                canvas.width = 0;
+
+                progressBar.style.width = `${(i / pdf.numPages) * 100}%`;
+            }
+
+            await worker.terminate();
+            statusText.innerText = "✅ Abgeschlossen. Lokal verarbeitet.";
+
+        } catch (err) {
+            statusText.innerText = "❌ Fehler: " + err.message;
+            console.error(err);
+        }
+    }
+</script>
+
+</body>
+</html>
